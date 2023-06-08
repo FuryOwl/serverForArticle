@@ -22,7 +22,6 @@
 #define SOCKET_ERROR -1
 #endif
 
-const std::string SERVER_IP = "127.168.0.0";
 const unsigned short SERVER_PORT = 8080;
 const int MAX_CONNECTIONS = 10;
 static const std::string base64_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -114,7 +113,7 @@ int main() {
     // Bind the socket to the server address
     sockaddr_in serverAddress{};
     serverAddress.sin_family = AF_INET;
-    inet_pton(AF_INET, SERVER_IP.c_str(), &(serverAddress.sin_addr));
+    serverAddress.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     serverAddress.sin_port = htons(SERVER_PORT); // Change the port number if needed
 
     if (bind(serverSocket, reinterpret_cast<sockaddr*>(&serverAddress), sizeof(serverAddress)) == SOCKET_ERROR) {
@@ -133,7 +132,7 @@ int main() {
     inet_ntop(AF_INET, &(serverAddress.sin_addr), ipAddress, sizeof(ipAddress));
     unsigned short port = ntohs(serverAddress.sin_port);
 
-    std::cout << "Server is listening on IP: " << SERVER_IP << ", Port: " << SERVER_PORT << std::endl;
+    std::cout << "Server is listening on IP: " << ipAddress << ", Port: " << port << std::endl;
 
     // Listen for incoming connections
     if (listen(serverSocket, SOMAXCONN) == SOCKET_ERROR) {
