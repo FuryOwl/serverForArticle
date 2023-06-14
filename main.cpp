@@ -23,7 +23,7 @@
 #define SOCKET_ERROR -1
 #endif
 
-const unsigned short SERVER_PORT = 8080;
+const unsigned short SERVER_PORT = 80;
 const int MAX_CONNECTIONS = 10;
 static const std::string base64_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
