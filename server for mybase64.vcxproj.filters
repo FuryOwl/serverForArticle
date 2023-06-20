@@ -21,9 +21,6 @@
     <ClCompile Include="sqlite3.c">
       <Filter>Исходные файлы</Filter>
     </ClCompile>
-    <ClCompile Include="shell.c">
-      <Filter>Исходные файлы</Filter>
-    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="sqlite3.h">
