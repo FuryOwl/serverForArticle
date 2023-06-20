@@ -3,7 +3,7 @@ project(base64server)
 
 set(CMAKE_CXX_STANDARD 14)
 
-set(SOURCES main.cpp sqlite3.c shell.c)
+set(SOURCES main.cpp sqlite3.c)
 
 if(WIN32)
     set(SYSTEM_LIBRARIES ws2_32)
