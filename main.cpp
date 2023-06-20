@@ -309,9 +309,10 @@ int main() {
     }
 
     // Accept and handle incoming connections
-    sockaddr_in clientAddress{};
-    int clientAddressSize = sizeof(clientAddress);
     while (true) {
+        sockaddr_in clientAddress{};
+        socklen_t clientAddressSize = sizeof(clientAddress);
+
         SOCKET clientSocket = accept(serverSocket, reinterpret_cast<sockaddr*>(&clientAddress), &clientAddressSize);
         if (clientSocket == INVALID_SOCKET) {
             std::cerr << "Failed to accept client connection" << std::endl;
