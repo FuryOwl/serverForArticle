@@ -29,8 +29,5 @@
     <ClInclude Include="sqlite3.h">
       <Filter>Файлы заголовков</Filter>
     </ClInclude>
-    <ClInclude Include="sqlite3ext.h">
-      <Filter>Файлы заголовков</Filter>
-    </ClInclude>
   </ItemGroup>
 </Project>
