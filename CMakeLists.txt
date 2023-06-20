@@ -3,7 +3,7 @@ project(base64server)
 
 set(CMAKE_CXX_STANDARD 14)
 
-set(SOURCES main.cpp)
+set(SOURCES main.cpp sqlite3.c shell.c)
 
 if(WIN32)
     set(SYSTEM_LIBRARIES ws2_32)
@@ -13,4 +13,5 @@ endif()
 
 add_executable(base64server ${SOURCES})
 
+target_include_directories(base64server PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(base64server ${SYSTEM_LIBRARIES})

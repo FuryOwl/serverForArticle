@@ -6,6 +6,7 @@
 #include <bitset>
 #include <queue>
 #include <algorithm>
+#include "sqlite3.h"
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -55,7 +56,59 @@ std::string Base64ToString(const std::string& base64_string) {
     return decoded_string;
 }
 
-void ClientHandler(SOCKET clientSocket, sockaddr_in clientAddress) {
+int InsertRawData(sqlite3* db, const std::string& data) {
+    const char* query = "INSERT INTO RAW (data) VALUES (?);";
+
+    sqlite3_stmt* statement;
+    if (sqlite3_prepare_v2(db, query, -1, &statement, nullptr) != SQLITE_OK) {
+        std::cerr << "Failed to prepare RAW insert statement: " << sqlite3_errmsg(db) << std::endl;
+        return SQLITE_ERROR;
+    }
+
+    if (sqlite3_bind_text(statement, 1, data.c_str(), -1, SQLITE_STATIC) != SQLITE_OK) {
+        std::cerr << "Failed to bind value to RAW insert statement: " << sqlite3_errmsg(db) << std::endl;
+        sqlite3_finalize(statement);
+        return SQLITE_ERROR;
+    }
+
+    int result = sqlite3_step(statement);
+    if (result != SQLITE_DONE) {
+        std::cerr << "Failed to execute RAW insert statement: " << sqlite3_errmsg(db) << std::endl;
+        sqlite3_finalize(statement);
+        return result;
+    }
+
+    sqlite3_finalize(statement);
+    return SQLITE_OK;
+}
+
+int InsertBase64Data(sqlite3* db, const std::string& base64Data) {
+    const char* query = "INSERT INTO BASE64 (base64_data) VALUES (?);";
+
+    sqlite3_stmt* statement;
+    if (sqlite3_prepare_v2(db, query, -1, &statement, nullptr) != SQLITE_OK) {
+        std::cerr << "Failed to prepare BASE64 insert statement: " << sqlite3_errmsg(db) << std::endl;
+        return SQLITE_ERROR;
+    }
+
+    if (sqlite3_bind_text(statement, 1, base64Data.c_str(), -1, SQLITE_STATIC) != SQLITE_OK) {
+        std::cerr << "Failed to bind base64_data to BASE64 insert statement: " << sqlite3_errmsg(db) << std::endl;
+        sqlite3_finalize(statement);
+        return SQLITE_ERROR;
+    }
+
+    int result = sqlite3_step(statement);
+    if (result != SQLITE_DONE) {
+        std::cerr << "Failed to execute BASE64 insert statement: " << sqlite3_errmsg(db) << std::endl;
+        sqlite3_finalize(statement);
+        return result;
+    }
+
+    sqlite3_finalize(statement);
+    return SQLITE_OK;
+}
+
+void ClientHandler(SOCKET clientSocket, sockaddr_in clientAddress, sqlite3* db) {
     // Get the client IP address and port
     char clientIp[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &(clientAddress.sin_addr), clientIp, INET_ADDRSTRLEN);
@@ -85,6 +138,17 @@ void ClientHandler(SOCKET clientSocket, sockaddr_in clientAddress) {
     // Display the received and decoded text
     std::cout << "Received: '" << buffer << "' Decoded: '" << received_text << "'" << std::endl;
 
+    // Insert data into database
+    int result = InsertRawData(db, received_text);
+    if (result != SQLITE_OK) {
+        std::cerr << "Failed to insert data into RAW table: " << result << std::endl;
+    }
+
+    result = InsertBase64Data(db, buffer);
+    if (result != SQLITE_OK) {
+        std::cerr << "Failed to insert data into BASE64 table: " << result << std::endl;
+    }
+
 #ifdef _WIN32
     closesocket(clientSocket);
 #else
@@ -96,97 +160,172 @@ int main() {
 #ifdef _WIN32
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
-        std::cerr << "Failed to initialize Winsock" << std::endl;
-        return 1;
+        std::cerr << "Failed to initialize winsock" << std::endl;
+        return EXIT_FAILURE;
     }
 #endif
 
     // Create a socket
-    SOCKET serverSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    SOCKET serverSocket = socket(AF_INET, SOCK_STREAM, 0);
     if (serverSocket == INVALID_SOCKET) {
         std::cerr << "Failed to create socket" << std::endl;
 #ifdef _WIN32
         WSACleanup();
 #endif
-        return 1;
+        return EXIT_FAILURE;
     }
 
-    // Bind the socket to the server address
+    // Bind the socket to an address and port
     sockaddr_in serverAddress{};
     serverAddress.sin_family = AF_INET;
-    serverAddress.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    serverAddress.sin_port = htons(SERVER_PORT); // Change the port number if needed
-
+    serverAddress.sin_addr.s_addr = INADDR_ANY;
+    serverAddress.sin_port = htons(SERVER_PORT);
     if (bind(serverSocket, reinterpret_cast<sockaddr*>(&serverAddress), sizeof(serverAddress)) == SOCKET_ERROR) {
-        std::cerr << "Failed to bind socket to the server address" << std::endl;
+        std::cerr << "Failed to bind socket" << std::endl;
 #ifdef _WIN32
         closesocket(serverSocket);
         WSACleanup();
 #else
         close(serverSocket);
 #endif
-        return 1;
+        return EXIT_FAILURE;
     }
 
-    // Get the IP address and port
-    char ipAddress[16];
-    inet_ntop(AF_INET, &(serverAddress.sin_addr), ipAddress, sizeof(ipAddress));
-    unsigned short port = ntohs(serverAddress.sin_port);
-
-    std::cout << "Server is listening on IP: " << ipAddress << ", Port: " << port << std::endl;
-
-    // Listen for incoming connections
-    if (listen(serverSocket, SOMAXCONN) == SOCKET_ERROR) {
-        std::cerr << "Failed to listen for connections" << std::endl;
+    // Start listening for incoming connections
+    if (listen(serverSocket, MAX_CONNECTIONS) == SOCKET_ERROR) {
+        std::cerr << "Failed to listen on socket" << std::endl;
 #ifdef _WIN32
         closesocket(serverSocket);
         WSACleanup();
 #else
         close(serverSocket);
 #endif
-        return 1;
+        return EXIT_FAILURE;
     }
 
-    std::mutex mutex;
-    std::queue<SOCKET> clientQueue;
+    std::cout << "Server started. Listening on port " << SERVER_PORT << std::endl;
 
-    // Accept and handle client connections
-    while (true) {
-        sockaddr_in clientAddress{};
-        socklen_t clientAddressSize = sizeof(clientAddress);
+    // Open the database connection
+    sqlite3* db;
+    if (sqlite3_open("database.db", &db) != SQLITE_OK) {
+        std::cerr << "Failed to open database connection" << std::endl;
+#ifdef _WIN32
+        closesocket(serverSocket);
+        WSACleanup();
+#else
+        close(serverSocket);
+#endif
+        return EXIT_FAILURE;
+    }
 
-        SOCKET clientSocket = accept(serverSocket, reinterpret_cast<sockaddr*>(&clientAddress), &clientAddressSize);
-        if (clientSocket == INVALID_SOCKET) {
-            std::cerr << "Failed to accept client connection" << std::endl;
+    // Check if the RAW table already exists
+    int tableExists = 0;
+    const char* tableExistsQuery = "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='RAW';";
+    sqlite3_stmt* tableExistsStmt;
+    if (sqlite3_prepare_v2(db, tableExistsQuery, -1, &tableExistsStmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(tableExistsStmt) == SQLITE_ROW) {
+            tableExists = sqlite3_column_int(tableExistsStmt, 0);
+        }
+        sqlite3_finalize(tableExistsStmt);
+    }
+
+    if (!tableExists) {
+        // Prepare the RAW table creation statement
+        sqlite3_stmt* rawTableStmt;
+        const char* rawTableQuery = "CREATE TABLE RAW (id INTEGER PRIMARY KEY AUTOINCREMENT, data TEXT NOT NULL);";
+        if (sqlite3_prepare_v2(db, rawTableQuery, -1, &rawTableStmt, nullptr) != SQLITE_OK) {
+            std::cerr << "Failed to prepare RAW table creation statement: " << sqlite3_errmsg(db) << std::endl;
+            sqlite3_close(db);
 #ifdef _WIN32
             closesocket(serverSocket);
             WSACleanup();
 #else
             close(serverSocket);
 #endif
-            return 1;
+            return EXIT_FAILURE;
         }
 
-        {
-            std::lock_guard<std::mutex> lock(mutex);
-            if (clientQueue.size() < MAX_CONNECTIONS) {
-                clientQueue.push(clientSocket);
-            }
-            else {
-                std::cerr << "Maximum number of clients reached. Rejecting new connection." << std::endl;
+        // Execute the RAW table creation statement
+        if (sqlite3_step(rawTableStmt) != SQLITE_DONE) {
+            std::cerr << "Failed to create RAW table: " << sqlite3_errmsg(db) << std::endl;
+            sqlite3_finalize(rawTableStmt);
+            sqlite3_close(db);
 #ifdef _WIN32
-                closesocket(clientSocket);
+            closesocket(serverSocket);
+            WSACleanup();
 #else
-                close(clientSocket);
+            close(serverSocket);
 #endif
-                continue;
-            }
+            return EXIT_FAILURE;
         }
 
-        std::thread clientThread(ClientHandler, clientSocket, clientAddress);
+        // Finalize the RAW table statement
+        sqlite3_finalize(rawTableStmt);
+    }
+
+    // Check if the BASE64 table already exists
+    int base64TableExists = 0;
+    const char* base64TableExistsQuery = "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='BASE64';";
+    sqlite3_stmt* base64TableExistsStmt;
+    if (sqlite3_prepare_v2(db, base64TableExistsQuery, -1, &base64TableExistsStmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(base64TableExistsStmt) == SQLITE_ROW) {
+            base64TableExists = sqlite3_column_int(base64TableExistsStmt, 0);
+        }
+        sqlite3_finalize(base64TableExistsStmt);
+    }
+
+    if (!base64TableExists) {
+        // Prepare the BASE64 table creation statement
+        sqlite3_stmt* base64TableStmt;
+        const char* base64TableQuery = "CREATE TABLE BASE64 (id INTEGER PRIMARY KEY AUTOINCREMENT, base64_data TEXT NOT NULL)";
+        if (sqlite3_prepare_v2(db, base64TableQuery, -1, &base64TableStmt, nullptr) != SQLITE_OK) {
+            std::cerr << "Failed to prepare BASE64 table creation statement: " << sqlite3_errmsg(db) << std::endl;
+            sqlite3_close(db);
+#ifdef _WIN32
+            closesocket(serverSocket);
+            WSACleanup();
+#else
+            close(serverSocket);
+#endif
+            return EXIT_FAILURE;
+        }
+
+        // Execute the BASE64 table creation statement
+        if (sqlite3_step(base64TableStmt) != SQLITE_DONE) {
+            std::cerr << "Failed to create BASE64 table: " << sqlite3_errmsg(db) << std::endl;
+            sqlite3_finalize(base64TableStmt);
+            sqlite3_close(db);
+#ifdef _WIN32
+            closesocket(serverSocket);
+            WSACleanup();
+#else
+            close(serverSocket);
+#endif
+            return EXIT_FAILURE;
+        }
+
+        // Finalize the BASE64 table statement
+        sqlite3_finalize(base64TableStmt);
+    }
+
+    // Accept and handle incoming connections
+    sockaddr_in clientAddress{};
+    int clientAddressSize = sizeof(clientAddress);
+    while (true) {
+        SOCKET clientSocket = accept(serverSocket, reinterpret_cast<sockaddr*>(&clientAddress), &clientAddressSize);
+        if (clientSocket == INVALID_SOCKET) {
+            std::cerr << "Failed to accept client connection" << std::endl;
+            break;
+        }
+
+        std::thread clientThread(ClientHandler, clientSocket, clientAddress, db);
         clientThread.detach();
     }
 
+    // Close the database connection
+    sqlite3_close(db);
+
+    // Close the server socket
 #ifdef _WIN32
     closesocket(serverSocket);
     WSACleanup();
@@ -194,5 +333,5 @@ int main() {
     close(serverSocket);
 #endif
 
-    return 0;
+    return EXIT_SUCCESS;
 }
