@@ -57,56 +57,33 @@ std::string Base64ToString(const std::string& base64_string) {
 }
 
 int InsertRawData(sqlite3* db, const std::string& data) {
-    const char* query = "INSERT INTO RAW (data) VALUES (?);";
+    std::string query = "INSERT INTO RAW (data) VALUES ('" + data + "');";
+    char* errMsg = nullptr;
 
-    sqlite3_stmt* statement;
-    if (sqlite3_prepare_v2(db, query, -1, &statement, nullptr) != SQLITE_OK) {
-        std::cerr << "Failed to prepare RAW insert statement: " << sqlite3_errmsg(db) << std::endl;
-        return SQLITE_ERROR;
-    }
-
-    if (sqlite3_bind_text(statement, 1, data.c_str(), -1, SQLITE_STATIC) != SQLITE_OK) {
-        std::cerr << "Failed to bind value to RAW insert statement: " << sqlite3_errmsg(db) << std::endl;
-        sqlite3_finalize(statement);
-        return SQLITE_ERROR;
-    }
-
-    int result = sqlite3_step(statement);
-    if (result != SQLITE_DONE) {
-        std::cerr << "Failed to execute RAW insert statement: " << sqlite3_errmsg(db) << std::endl;
-        sqlite3_finalize(statement);
+    int result = sqlite3_exec(db, query.c_str(), nullptr, nullptr, &errMsg);
+    if (result != SQLITE_OK) {
+        std::cerr << "Failed to execute RAW insert statement: " << errMsg << std::endl;
+        sqlite3_free(errMsg);
         return result;
     }
 
-    sqlite3_finalize(statement);
     return SQLITE_OK;
 }
 
 int InsertBase64Data(sqlite3* db, const std::string& base64Data) {
-    const char* query = "INSERT INTO BASE64 (base64_data) VALUES (?);";
+    std::string query = "INSERT INTO BASE64 (base64_data) VALUES ('" + base64Data + "');";
+    char* errMsg = nullptr;
 
-    sqlite3_stmt* statement;
-    if (sqlite3_prepare_v2(db, query, -1, &statement, nullptr) != SQLITE_OK) {
-        std::cerr << "Failed to prepare BASE64 insert statement: " << sqlite3_errmsg(db) << std::endl;
-        return SQLITE_ERROR;
-    }
-
-    if (sqlite3_bind_text(statement, 1, base64Data.c_str(), -1, SQLITE_STATIC) != SQLITE_OK) {
-        std::cerr << "Failed to bind base64_data to BASE64 insert statement: " << sqlite3_errmsg(db) << std::endl;
-        sqlite3_finalize(statement);
-        return SQLITE_ERROR;
-    }
-
-    int result = sqlite3_step(statement);
-    if (result != SQLITE_DONE) {
-        std::cerr << "Failed to execute BASE64 insert statement: " << sqlite3_errmsg(db) << std::endl;
-        sqlite3_finalize(statement);
+    int result = sqlite3_exec(db, query.c_str(), nullptr, nullptr, &errMsg);
+    if (result != SQLITE_OK) {
+        std::cerr << "Failed to execute BASE64 insert statement: " << errMsg << std::endl;
+        sqlite3_free(errMsg);
         return result;
     }
 
-    sqlite3_finalize(statement);
     return SQLITE_OK;
 }
+
 
 void ClientHandler(SOCKET clientSocket, sockaddr_in clientAddress, sqlite3* db) {
     // Get the client IP address and port
